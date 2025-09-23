@@ -1,248 +1,944 @@
-# Decommenter
+# Lab 2: I/O
 
-(This programming assignment is slightly modified from an assignment of Princeton COS217.)
+In this lab, you will implement a tool that lists all files in a directory and its subdirectories.
 
-Your task is to write a C program named *decomment* that performs a subset of the de-comment job of the C preprocessor. Your program should (1) read C source code from the standard input stream, (2) write that same text to the standard output stream with each comment replaced by a space, and (3) write error and warning messages as appropriate to the standard error stream. A typical execution of your program from the shell might look like this:
+You will learn:
+  * 📂 Explore directories — iterate through all files
+  * 📑 Inspect files — retrieve metadata (ownership, size, type)
+  * 📝 Present data — produce clean, formatted output
+  * ⚠️ Handle problems — practice robust error handling
+  * 🔤 Tame strings — discover C’s weak spot in string handling
+  * 🔎 Think in patterns — grasp the basics of regular expressions
+  * ⚙️ Build your own — implement a mini regex engine
+  * ✨ Plus: handy C tricks & library functions
 
-`./decomment < somefile.c > somefilewithoutcomments.c 2> errorandwarningmessages`
-
-## Important Dates
+## Deadline
 
 | Date | Description |
 |:---  |:--- |
-| Wednesday, September 17, 21:00 | Submission deadline |
-
-## Requirements
-
-In the following examples a space character is shown as "<sub>s</sub>" and a newline character as "<sub>n</sub>".
-
-#### (1) Your program should replace each comment with a space. Examples:
-
-|         Standard Input Stream          |           Standard Output Stream           | Standard Error Stream |
-| :------------------------------------: | :----------------------------------------: | --------------------- |
-|       abc/\*def*/ghi<sub>n</sub>       |       abc<sub>s</sub>ghi<sub>n</sub>       |                       |
-| abc/\*def*/<sub>s</sub>ghi<sub>n</sub> | abc<sub>s</sub><sub>s</sub>ghi<sub>n</sub> |                       |
-| abc<sub>s</sub>/\*def*/ghi<sub>n</sub> | abc<sub>s</sub><sub>s</sub>ghi<sub>n</sub> |                       |
-
-#### (2) Your program should support both types of comments. One is a single line comment in the form of (//...) and the other is a multi-line comment in the form of (/\*...\*/). Your program should add blank lines as necessary to preserve the original line numbering. Examples: 
-
-|                          Standard Input Stream                          |                        Standard Output Stream                         | Standard Error Stream |
-| :---------------------------------------------------------------------: | :-------------------------------------------------------------------: | --------------------- |
-|                          abc//def<sub>n</sub>                           |                      abc<sub>s</sub><sub>n</sub>                      |                       |
-|        abc/\*def<sub>n</sub>ghi*/jkl<sub>n</sub>mno<sub>n</sub>         |       abc<sub>s</sub><sub>n</sub>jkl<sub>n</sub>mno<sub>n</sub>       |                       |
-| abc/\*def<sub>n</sub>ghi<sub>n</sub>jkl*/mno<sub>n</sub>pqr<sub>n</sub> | abc<sub>s</sub><sub>n</sub><sub>n</sub>mno<sub>n</sub>pqr<sub>n</sub> |                       |
-
-#### (3) A multi-line comment begins when the preprocess encounters "/\*" for the first time. The comment ends when it encounters "\*/" after the comment begins. Everything between "/\*" and "\*/" pair is a comment. Example:
-
-|         Standard Input Stream          |  Standard Output Stream  | Standard Error Stream |
-| :------------------------------------: | :----------------------: | --------------------- |
-| abc/\*def/*ghi\*/jkl\*/mno<sub>n</sub> | abc<sub>s</sub>jkl*/mno<sub>n</sub> |                       |
-
-#### (4a) Exception: Do not de-comment the comment when it is a part of the string. Examples:
-
-|       Standard Input Stream        |       Standard Output Stream       | Standard Error Stream |
-| :--------------------------------: | :--------------------------------: | --------------------- |
-| abc"def/\*ghi*/jkl"mno<sub>n</sub> | abc"def/\*ghi*/jkl"mno<sub>n</sub> |                       |
-| abc"def//ghi*/jkl"mno<sub>n</sub>  | abc"def//ghi*/jkl"mno<sub>n</sub>  |                       |
-| abc//"defghi*/jkl"mno<sub>n</sub>  |    abc<sub>s</sub><sub>n</sub>     |                       |
-| abc/\*def"ghi"jkl*/mno<sub>n</sub> |   abc<sub>s</sub>mno<sub>n</sub>   |                       |
-| abc/\*def"ghijkl*/mno<sub>n</sub>  |   abc<sub>s</sub>mno<sub>n</sub>   |                       |
-
-#### (4b) Exception: Do not de-comment the comment when the comment is a part of the character constant. Examples:
-
-|       Standard Input Stream        |       Standard Output Stream       | Standard Error Stream |
-| :--------------------------------: | :--------------------------------: | --------------------- |
-| abc'def/\*ghi*/jkl'mno<sub>n</sub> | abc'def/\*ghi*/jkl'mno<sub>n</sub> |                       |
-| abc/\*def'ghi'jkl*/mno<sub>n</sub> |   abc<sub>s</sub>mno<sub>n</sub>   |                       |
-| abc/\*def'ghijkl*/mno<sub>n</sub>  |   abc<sub>s</sub>mno<sub>n</sub>   |                       |
-
-Clearly, this is an erroneous statement. The de-commenter should not worry. The compiler will handle this error.
-
-#### (5a) Process backslash '\\' and the following character as the ordinary characters when they are within the string constant. Note that backslash ('\\') may appear as the Korean Won (₩) symbol in your screen. Your program should consider text of the form ("...\\"...") to be a valid string constant which happens to contain the double quote character. Examples:
-
-|     Standard Input Stream     |    Standard Output Stream     | Standard Error Stream |
-| :---------------------------: | :---------------------------: | --------------------- |
-| abc"def\\"ghi"jkl<sub>n</sub> | abc"def\\"ghi"jkl<sub>n</sub> |                       |
-| abc"def\\'ghi"jkl<sub>n</sub> | abc"def\\'ghi"jkl<sub>n</sub> |                       |
-
-#### (5b) Similarly, process backslash '\\' and the following character as the ordinary characters when they are within the character constant. Your program should consider text of the form ('...\\'...') to be a valid character constant which happens to contain the quote character. Examples:
-
-|     Standard Input Stream     |    Standard Output Stream     | Standard Error Stream |
-| :---------------------------: | :---------------------------: | --------------------- |
-| abc'def\\'ghi'jkl<sub>n</sub> | abc'def\\'ghi'jkl<sub>n</sub> |                       |
-| abc'def\\"ghi'jkl<sub>n</sub> | abc'def\\"ghi'jkl<sub>n</sub> |                       |
-
-Note that the C compiler would consider both of those examples to be erroneous (multiple characters in a character constant). But many C preprocessors would not, and your program should not.
-
-#### (6a) Your program should handle newline characters in C string constants without generating errors or warnings. Examples:
-
-|                      Standard Input Stream                       |                        Standard Output Stream                        | Standard Error Stream |
-| :--------------------------------------------------------------: | :------------------------------------------------------------------: | --------------------- |
-|              abc"def<sub>n</sub>ghi"jkl<sub>n</sub>              |                abc"def<sub>n</sub>ghi"jkl<sub>n</sub>                |                       |
-| abc"def<sub>n</sub>ghi<sub>n</sub>jkl"mno/\*pqr*/stu<sub>n</sub> | abc"def<sub>n</sub>ghi<sub>n</sub>jkl"mno<sub>s</sub>stu<sub>n</sub> |                       |
-
-Note that a C compiler would consider those examples to be erroneous (newline character in a string constant). But many C preprocessors would not, and your program should not.
-
-#### (6b) Similarly, your program should handle newline characters in C character constants without generating errors or warnings. Examples:
-
-|                      Standard Input Stream                       |                        Standard Output Stream                        | Standard Error Stream |
-| :--------------------------------------------------------------: | :------------------------------------------------------------------: | --------------------- |
-|              abc'def<sub>n</sub>ghi'jkl<sub>n</sub>              |                abc'def<sub>n</sub>ghi'jkl<sub>n</sub>                |                       |
-| abc'def<sub>n</sub>ghi<sub>n</sub>jkl'mno/\*pqr*/stu<sub>n</sub> | abc'def<sub>n</sub>ghi<sub>n</sub>jkl'mno<sub>s</sub>stu<sub>n</sub> |                       |
-
-Note that a C compiler would consider those examples to be erroneous (multiple characters in a character constant, newline character in a character constant). But many C preprocessors would not, and your program should not.
-
-#### (7) Your program should handle unterminated string and character constants without generating errors or warnings. Examples:
-
-|     Standard Input Stream      |     Standard Output Stream     | Standard Error Stream |
-| :----------------------------: | :----------------------------: | --------------------- |
-| abc"def/\*ghi*/jkl<sub>n</sub> | abc"def/\*ghi*/jkl<sub>n</sub> |                       |
-| abc'def/\*ghi*/jkl<sub>n</sub> | abc'def/\*ghi*/jkl<sub>n</sub> |                       |
-
-Note that a C compiler would consider those examples to be erroneous (unterminated string constant, unterminated character constant, multiple characters in a character constant). But many C preprocessors would not, and your program should not.
-
-#### (8) If your program detects end-of-file before a comment is terminated, it should write the message "Error: line X: unterminated comment" to the standard error stream. "X" should be the number of the line on which the unterminated comment begins. Examples:
-
-|          Standard Input Stream           |            Standard Output Stream             | Standard Error Stream                                                                       |
-| :--------------------------------------: | :-------------------------------------------: | ------------------------------------------------------------------------------------------- |
-|   abc/\*def<sub>n</sub>ghi<sub>n</sub>   |    abc<sub>s</sub><sub>n</sub><sub>n</sub>    | Error:<sub>s</sub>line<sub>s</sub>1:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-|   abcdef<sub>n</sub>ghi/*<sub>n</sub>    | abcdef<sub>n</sub>ghi<sub>s</sub><sub>n</sub> | Error:<sub>s</sub>line<sub>s</sub>2:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-| abc/\*def/ghi<sub>n</sub>jkl<sub>n</sub> |    abc<sub>s</sub><sub>n</sub><sub>n</sub>    | Error:<sub>s</sub>line<sub>s</sub>1:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-| abc/\*def*ghi<sub>n</sub>jkl<sub>n</sub> |    abc<sub>s</sub><sub>n</sub><sub>n</sub>    | Error:<sub>s</sub>line<sub>s</sub>1:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-|  abc/\*def<sub>n</sub>ghi*<sub>n</sub>   |    abc<sub>s</sub><sub>n</sub><sub>n</sub>    | Error:<sub>s</sub>line<sub>s</sub>1:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-|  abc/\*def<sub>n</sub>ghi/<sub>n</sub>   |    abc<sub>s</sub><sub>n</sub><sub>n</sub>    | Error:<sub>s</sub>line<sub>s</sub>1:<sub>s</sub>unterminated<sub>s</sub>comment<sub>n</sub> |
-
-#### (9) Your program (more precisely, its main function) should return EXIT_FAILURE if it detects an unterminated comment and so was unable to remove comments properly. Otherwise it should return EXIT_SUCCESS or, equivalently 0. Note that EXIT_FAILURE and EXIT_SUCCESS are defined as macros in stdlib.h, so add #include <stdlib.h> to your C code.
-
-#### (10) Your program should work for standard input lines of any length.
-
-#### (11) You may assume that the final line of the standard input stream ends with a newline character.
-
-#### (12) Your program may assume that the backslash(\\)+newline(\\n) sequence does not occur in the standard input stream. That is, you don’t need to worry about the cases like
-```c
-printf(“hello \
-world\n”);
-```
-
-which is actually interpreted as printf(“hello world\n”); by the real C preprocessor. Your program may assume that logical lines are identical to physical lines in the standard input stream.
-
-#### (13) In this assignment, **you may place all source code in a single file.** Subsequent assignments will ask you to write programs consisting of multiple source code files.
-
-We suggest that your program use the standard C getchar() function to read characters from the standard input stream. To print out an error message to the standard error stream, you can use fprintf(stderr, "error string\n"); and if you replace stderr with stdout in fprintf(), the output to the standard output stream. That is, printf(...) is actually the same as fprintf(stdout, ...).
+| Wednesday, October 8, 21:00 | Submission deadline |
 
 ## Logistics
 
-### Step 1: Design a State Transition Diagram (also known as Deterministic Finite Automata)
-Express the algorithm of decommentor using state transition diagram, i.e. with the traditional "ovals and labeled arrows" notation. The oval and arrow correspond to the state and input to the state (or action), respectively. First, define a set of states for your program. Most importantly, define "begin" state and "end" state. There can be two end states in your diagram: success and failure. Give each state a descriptive name. Let each arrow represent a transition from one state to another. Label each arrow with a character, or a class of characters, that causes the transition from state to another to occur. We encourage (but do not require) you also to label each arrow with action(s) that should occur (e.g. "print the character") when the corresponding transition occurs.
+### Hand-out
 
-Express as much of the program's logic as you can within your state transition diagram. The more logic you express in your state transition diagram, the better your grade on the state transition diagram will be. To properly report unterminated comments, your program must contain logic to keep track of the current line number of the standard input stream. You need not show that logic in your state transition diagram.
+Please read this file (README.md) carefully. Additionally, the PPT slide presented during the lab session is included in the distribution archive for students. However, please remember that the PPT slide is based on the README.md file, and it is **important to understand the contents of the README.md file**.
 
-The state transition diagram you draw is formally called Finite State Automata (FSA) or Finite State Machine (FSM). Finite State Machine is defined by the tuple of five elements: (set of states, a set of input symbols, transition function, begin state, a set of termination states). Further interested students are referred to "Kohavi et al. Switching and Finite Automata Theory, 3rd ed" or <a href="https://www.amazon.com/Switching-Finite-Automata-Theory-Kohavi/dp/0521857481">here</a>.
-
-### Step 2: Create Source Code
-Create the source code for your state transition diagram. Name it decomment.c.
-
-### Step 3: Preprocess, Compile, Assemble, and Link
-Use the gcc800 command to preprocess, compile, assemble, and link your program. Perform each step individually, and examine the intermediate results to the extent possible. Name the intermediate files as decomment.i, decomment.s, decomment.o after preprocessing, compiling, assembling, respectively,
-
-### Step 4: Execute
-Execute your program multiple times on various input files that test all logical paths through your code. For the test, use the sample files provided here.
-
-(1) Download all files to your project directory. You will find sampledecomment and 6 test C source files. You need to make sampledecomment executable (by changing file permission) by
-
-`chmod u+x sampledecomment`
-
-(2) sampledecomment is an executable version of a correct assignment solution. For full credit, your program should write exactly (character for character) the same data to the standard output stream and the standard error stream as sampledecomment does. You should test your program using commands similar to these:
-
-`./sampledecomment < somefile.c > output1 2> errors1`
-
-`./decomment < somefile.c > output2 2> errors2`
-
-`diff -c output1 output2`
-
-`diff -c errors1 errors2`
-
-`rm output1 errors1 output2 errors2`
-
-The Unix `diff` command finds differences between two given files. The executions of the `diff` command shown above should produce no output. If the command `diff -c output1 output2` produces output, then sampledecomment and your program have written different characters to the standard output stream. Similarly, if the command `diff -c errors1 errors2` produces output, then sampledecomment and your program have written different characters to the standard error stream.
-
-You also should test your program against its own source code using a command sequence such as this:
-
-`./sampledecomment < decomment.c > output1 2> errors1`
-
-`./decomment < decomment.c > output2 2> errors2`
-
-`diff -c output1 output2`
-
-`diff -c errors1 errors2`
-
-`rm output1 errors1 output2 errors2`
-
-### Step 5: Create a readme File
-
-Create readme file without filename extension (not readme.txt, or README, or Readme, etc.). The readme file should contain the followings:
-
-Your name, student ID, and the assignment number.
-A description of whatever help (if any) you received from others while doing the assignment, and the names of any individuals with whom you collaborated, as prescribed by the course Policy web page.
-(Optionally) An indication of how much time you spent doing the assignment.
-(Optionally) Your assessment of the assignment: Did it help you to learn? What did it help you to learn? Do you have any suggestions for improvement? Etc.
-(Optionally) Any information that will help us to grade your work in the most favorable light. In particular you should describe all known bugs.
-Descriptions of your code should not be in the readme file. Instead they should be integrated into your code as comments.
-
-Your readme file should be a plain text file. Don't create your readme file using Microsoft Word, Hangul (HWP) or any other word processor.
-
-### Step 6: Submit
-
-Your submission should include your decomment.c / decomment.i / decomment.s / decomment.o files, readme file, and state transition diagram. You can use drawing software (e.g. Microsoft PowerPoint) for your transition diagram. Or you can draw it on a paper, and subtmit the captured image, e.g., *.pdf or *.jpg. Either way, please name the file as dfa.xxx like dfa.pptx, dfa.png, dfa.pdf, etc.. Make sure that the image is readable with good enough resolution.
-Create a local directory named 'YourID_assign1' and place all files into that directory. Example:   
-
-```
-202500000_assign1
-  |-decomment.c (source file)
-  |-decomment.i (preprocessed file)
-  |-decomment.s (assembly file)
-  |-decomment.o (object file)
-  |-readme
-  `-dfa.pptx or dfa.pdf or dfa.jpg …
+The assignment starts by extracting the provided `assignment2.tar.gz` file.
+```bash
+$ tar -xvzf assignment2.tar.gz
 ```
 
-Then, compress the submission files into tar format using the following command (assuming YourID is 202500000):   
-   
-`mkdir 202500000_assign1`
+### Submission
 
-`mv decomment.c decomment.i decomment.o decomment.s 202500000_assign1/`
+As in lab-1-decomment, create a directory named after your student number, compress it up, and submit it to to Classum submission page. Be sure to follow the following directory structure:
 
-`mv readme dfa.pptx 202501234_assign1`
+```bash
+202500000_assign2
+  |-dirtree.c (source file)
+  `-readme
 
-`tar zcf 202500000_assign1.tar.gz 202500000_assign1`   
+$ tar zcf 202500000_assign2.tar.gz 202500000_assign2
+```
 
-Upload your submission file (20250000_assign1.tar.gz) to **Classum** submission page. We do not accept e-mail submission (unless our course Classum page is down).
+### Implementing the Lab on an M1/M2 Mac or custom Unix/Linux
 
-## Grading
-We will grade your work on two kinds of quality: quality from the user's point of view, and quality from the programmer's point of view. To encourage good coding practices, we will deduct points if gcc800 generates warning messages.
+While it is possible to implement the lab on an ARM-based Mac, MacOS is not 100% compatible with Linux and thus requires a number of changes to the code (extra header files, etc.) We recommend installing an ARM-based Linux virtual machine such as [Ubuntu Server for ARM](https://ubuntu.com/download/server/arm). On custom Intel-compatible Linux systems, you should be able to implement the lab without any modifications.
 
-**From the user's point of view**, a program has quality if it behaves as it should. The correct behavior of your program is defined by the previous sections of this assignment specification, and by the behavior of the given sampledecomment program.
+Note that we evaluate your submissions in the provided Bacchus VMs. If you do not use the Bacchus VMs to develop your code, **we strongly recommend testing your submission in the Bacchus VMs** to make sure it runs correctly.
 
-**From the programmer's point of view**, a program has quality if it is well styled and thereby easy to maintain. Here are the examples:
+---
 
-**Names**: You should use a clear and consistent style for variable and function names. One example of such a style is to prefix each variable name with characters that indicate its type. For example, the prefix c might indicate that the variable is of type char, i might indicate int, pc might mean char*, ui might mean unsigned int, etc. But it is fine to use another style -- a style that does not include the type of a variable in its name -- as long as the result is a clear and readable program.
+## Dirtree Overview
 
-**Comments**: Each source code file should begin with a comment that includes your name, the number of the assignment, and the name of the file.
+Our tool is called _dirtree_. Dirtree recursively traverses a directory tree, prints out a sorted list of all files, and shows details about each file.
 
-**Comments**: Each function -- especially the main function -- should begin with a comment that describes what the function does from the point of view of the caller. (The comment should not describe how the function works.) It should do so by explicitly referring to the function's parameters and return value. The comment also should state what, if anything, the function reads from the standard input stream or any other stream, and what, if anything, the function writes to the standard output stream, the standard error stream, or any other stream. Finally, the function's comment should state which global variables the function uses or affects. In short, a function's comments should describe the flow of data into and out of the function.
+```bash
+$ dirtree demo
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo
+  subdir1                                                     ta:ta              4096         8    d
+    simplefile                                                ta:ta               256         8     
+    sparsefile                                                ta:ta              8192         8     
+    thisisanextremelyveryverylongfilenameforsuchasi...        ta:ta              1000         8     
+  subdir2                                                     ta:ta              4096         8    d
+    brokenlink                                                ta:ta                 8         0    l
+    symboliclink                                              ta:ta                 6         0    l
+    textfile1.txt                                             ta:ta              1024         8     
+    textfile2.txt                                             ta:ta              2048         8     
+  subdir3                                                     ta:ta              4096         8    d
+    code1.c                                                   ta:ta               200         8     
+    code2.c                                                   ta:ta               300         8     
+    pipe                                                      ta:ta                 0         0    f
+    socket                                                    ta:ta                 0         0    s
+  one                                                         ta:ta                 1         8     
+  two                                                         ta:ta                 2         8     
+----------------------------------------------------------------------------------------------------
+9 files, 3 directories, 2 links, 1 pipe, and 1 socket                           25325        96
 
-**Function modularity (most important)**: Your program should not consist of one large main function. Instead your program should consist of multiple small functions, each of which performs a single well-defined task. For example, you might create one function to implement each state of your DFA.
+```
 
-**Line lengths**: Limit line lengths in your source code to 72 characters. This should fit the most terminal without breaking one line into two or more lines just for display.
+Last but not least, dirtree can generate aggregate statistics over several directories:
+```
+$ dirtree demo/subdir1 demo/subdir2
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir1
+  simplefile                                                  ta:ta               256         8     
+  sparsefile                                                  ta:ta              8192         8     
+  thisisanextremelyveryverylongfilenameforsuchasimp...        ta:ta              1000         8     
+----------------------------------------------------------------------------------------------------
+3 files, 0 directories, 0 links, 0 pipes, and 0 sockets                          9448        24
 
-## FAQ
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir2
+  brokenlink                                                  ta:ta                 8         0    l
+  symboliclink                                                ta:ta                 6         0    l
+  textfile1.txt                                               ta:ta              1024         8     
+  textfile2.txt                                               ta:ta              2048         8     
+----------------------------------------------------------------------------------------------------
+2 files, 0 directories, 2 links, 0 pipes, and 0 sockets                          3086        16
 
-**Can I modify the provided skeleton code?**  
-Yes, you can modify part or all of it.
+Analyzed 2 directories:
+  total # of files:                       5
+  total # of directories:                 0
+  total # of links:                       2
+  total # of pipes:                       0
+  total # of sockets:                     0
+  total # of entries:                     7
+  total file size:                    12534
+  total # of blocks:                     40
+```
 
-**Can I write the readme in Korean?**  
-Yes.
+## Dirtree Specification 
 
-**Corner case questions**  
-Run sampledecomment if you have any doubt. If you suspect it misbehaves, please report it. 
+### Command line arguments
 
+Dirtree accepts the following command line arguments.
+```bash
+$ dirtree [Options] [Directories]
+```
+
+| Option          | Description |
+|:----            |:----        |
+| -d \<depth>     | Traverse directories up to the specified *depth* |
+| -f \<pattern>   | Apply a pattern matching filter to file names (supports `?`, `*`, `()`) |
+| -h              | Display help screen |
+
+`Directories` is a list of directories to traverse (up to 64).
+If none is specified, the current directory (`.`) is traversed by default.
+
+### Operation
+
+1. Dirtree recursively traverses each directory in the `Directories` list. 
+2. Within each directory, it enumerates all entries and prints them in **alphabetical order**. Directories are listed before files, and the special entries `.` and `..` are ignored.
+3. After processing a directory, a **summary line** is printed. If more than one directories are traversed, **aggregate statistics** are printed at the end.
+
+### Output
+
+#### Path/Name
+As dirtree traverses the directory tree, it prints the sorted names of the entities in each directory.
+Indentation increases by **two spaces** for each level of depth, making the directory hierarchy easy to recognize.
+
+<table>
+  <tbody>
+    <tr>
+      <td>
+        <pre>dir             <br>  subdir1<br>    subdir2<br>      file1<br>      file2<br>      file3<br>  file4</pre>
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+#### Detailed information
+To the right of the path and name, dirtree prints the following details for each entry:
+* User and group: Each file in Unix belongs to a user and a group. The names of the user and the group are printed, separated by a colon (`:`).
+* Size: The size of the file in bytes.
+* Disk blocks: The number of disk blocks occupied by the file. 
+* File type: A single-character code indicating the type of file:
+  | Type              | Character |
+  |:---               |:---------:|
+  | Regular file      | _(empty)_ |
+  | Directory         |     d     |
+  | Symbolic Link     |     l     |
+  | FIFO (named pipe) |     f     |
+  | Socket            |     s     |
+  <!-- | Character device  |     c     | -->
+  <!-- | Block device      |     b     | -->
+
+> **Note**: In this lab, `Character device` and `Block device` are just treated as `Regular file` for simplicity. 
+
+#### Per-directory summary & Aggregate statistics
+Dirtree prints a **header** and **footer** around the listing of each directory, followed by a **one-line summary of statistics** for that directory.
+
+If multiple directories are specified on the command line, **aggregate statistics** of all traversed directories are printed at the end.
+Note that the lines printed below `Analyzed N directories:` represent the cumulative totals across all processed directories.
+```
+$ dirtree demo/subdir2 demo/subdir3
+Name                                                        User:Group           Size    Blocks Type  # header
+----------------------------------------------------------------------------------------------------
+demo/subdir2
+  brokenlink                                                  ta:ta                 8         0    l
+  symboliclink                                                ta:ta                 6         0    l
+  textfile1.txt                                               ta:ta              1024         8     
+  textfile2.txt                                               ta:ta              2048         8     
+----------------------------------------------------------------------------------------------------
+2 files, 0 directories, 2 links, 0 pipes, and 0 sockets                          3086        16       # footer(summary line)
+
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir3
+  code1.c                                                     ta:ta               200         8     
+  code2.c                                                     ta:ta               300         8     
+  pipe                                                        ta:ta                 0         0    f
+  socket                                                      ta:ta                 0         0    s
+----------------------------------------------------------------------------------------------------
+2 files, 0 directories, 0 links, 1 pipe, and 1 socket                             500        16
+
+Analyzed 2 directories:                      # aggregate statistics
+  total # of files:                       4
+  total # of directories:                 0
+  total # of links:                       2
+  total # of pipes:                       1
+  total # of sockets:                     1
+  total # of entries:                     8  # aggregate only, not included in per-directory summary line
+  total file size:                     3586
+  total # of blocks:                     32
+```
+
+#### Output format
+* All entries must be printed with the correct indentation (**two spaces** per subdirectory depth).
+* The output should be aligned in columns: path/name, user:group, size, blocks, and type.
+* If a path/name or a summary line is too long to fit in its column, it must be truncated and end with three dots (`...`).
+
+```bash
+$ dirtree demo/subdir1
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir1
+  simplefile                                                  ta:ta               256         8     
+  sparsefile                                                  ta:ta              8192         8     
+  thisisanextremelyveryverylongfilenameforsuchasimp...        ta:ta              1000         8     
+----------------------------------------------------------------------------------------------------
+3 files, 0 directories, 0 links, 0 pipes, and 0 sockets                          9448        24
+
+```
+
+* The output line consists of the path/name on the left, followed by detailed information fields on the right.
+* The total line length is fixed at **100 characters**. Each field has a reserved width and is aligned for readability:
+* We only consider file names encoded in UTF-8. 
+
+| Output element | Width | Alignment | Action on overflow |
+|:---            |:-----:|:---------:|:---      |
+| Path/name      |  54   |   Left    | Cut and end with three dots (`...`) |
+| User name      |   8   |   Right   | Truncate to first 8 characters |
+| Group name     |   8   |   Left    | Truncate to first 8 characters |
+| File size      |  10   |   Right   | Ignore |
+| Disk blocks    |   8   |   Right   | Ignore |
+| Type           |   1   |           |        |
+| Summary line   |  68   |   Left    | Cut and end with three dots (`...`) |
+| Total size     |  14   |   Right   | Ignore |
+| Total blocks   |   9   |   Right   | Ignore |
+
+The following rendering shows the output formatting in detail for each of the different elements. The two rows on top indicate the character position on a line. 
+```bash
+         1         2         3         4         5         6         7         8         9        10
+1........0.........0.........0.........0.........0.........0.........0.........0.........0.........0
+
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+<path/name                                           >  <  user>:<group >  <    size>  <blocks>    t
+<path/name                                           >  <  user>:<group >  <    size>  <blocks>    t
+...
+----------------------------------------------------------------------------------------------------
+<summary line                                                      >   <  total size> <totblks>
+
+```
+> **Note 1**: When the field length is exactly equal to its maximum width (e.g., a path and name of 54 characters), no cutting or truncation is applied.
+
+> **Note 2**: In this assignment, your userid and group are set to "sp" + 9-digit student IDs. Use a format specifier such as `printf("%.8s");` to enforce the 8-byte limit.
+
+> **Note 3**: You do not need to handle cases where the file size, blocks, total size, or total blocks exceed their maximum field width. However, since the total size and total blocks may exceed the range of an `(unsigned) int`, it is safer to use an `(unsigned) long long` type.
+
+#### Summary line
+Dirtree ensures grammatically correct English in its summary lines. 
+* If the count is **0** or **>= 2**, the *plural form* is used;
+* Else if the count is exactly **1**, the *singular form* is used.
+
+Compare the two summary lines:
+```
+0 files, 2 directories, 1 link, 1 pipe, and 1 socket
+
+1 file, 1 directory, 2 links, 0 pipes, and 5 sockets
+```
+
+### Option 1: Depth limit `-d \<depth>`
+
+#### Description
+The `-d` option limits the depth of the directory traversal.
+* The root directory is considered depth **0**.
+* Its immediate child entries are depth **1**, their child entries are depth **2**, and so on.
+* **Only entries up to the given depth are displayed and traversed**.
+
+#### Examples
+Without `-d` option, all subdirectories and files are shown until the maximum depth is reached:
+* The skeleton code defines `MAX_DEPTH`=20 as default; you do not need to handle cases deeper than this.
+```
+$ dirtree test1/a
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+test1/a      # depth 0
+  b          # depth 1                                        ta:ta              4096         8    d
+    c        # depth 2                                        ta:ta              4096         8    d
+      d      # depth 3                                        ta:ta              4096         8    d
+        e    # depth 4                                        ta:ta              4096         8    d
+          f  # depth 5                                        ta:ta                 0         0     
+    f        # depth 2                                        ta:ta                 0         0     
+----------------------------------------------------------------------------------------------------
+2 files, 4 directories, 0 links, 0 pipes, and 0 sockets                         16384        32
+
+```
+
+With `-d 1`, only the root (depth 0) and its immediate children (depth 1) are shown:
+```
+$ dirtree -d 1 test1/a
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+test1/a      
+  b          # depth 1                                        ta:ta              4096         8    d
+----------------------------------------------------------------------------------------------------
+0 files, 1 directory, 0 links, 0 pipes, and 0 sockets                            4096         8
+
+```
+
+With `-d 2`, traversal goes one level deeper, showing entries at depth 2 as well.
+```
+$ dirtree -d 2 test1/a
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+test1/a
+  b                                                           ta:ta              4096         8    d
+    c        # depth 2                                        ta:ta              4096         8    d
+    f        # depth 2                                        ta:ta                 0         0     
+----------------------------------------------------------------------------------------------------
+1 file, 2 directories, 0 links, 0 pipes, and 0 sockets                           8192        16
+
+```
+
+With `-d 3`, entries at depth 3 are now included in the output:
+```
+$ dirtree -d 3 test1/a
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+test1/a
+  b                                                           ta:ta              4096         8    d
+    c                                                         ta:ta              4096         8    d
+      d      # depth 3                                        ta:ta              4096         8    d
+    f                                                         ta:ta                 0         0     
+----------------------------------------------------------------------------------------------------
+1 file, 3 directories, 0 links, 0 pipes, and 0 sockets                          12288        24
+
+```
+... You do not neet to print `# depth N`; this is only shown in the examples to help your understanding.
+
+#### Notes
+* Valid depth values are `1 ~ 20`.
+* If the `-d` option is not specified, the default maximum depth is **20**.
+  * You do not need to handle cases where the maximum reachable depth is greater than 20. 
+  * See `MAX_DEPTH` macro in the skeleton code. 
+* Inherently, statistics (both per-directory summary and aggregate statistics) should **not** count that skipped files when their depth is greater than the given `depth`.
+
+### Option 2: File name filtering `-f \<pattern>` 
+
+#### Description
+The `-f` option applies a regex‑like pattern filter to file and directory names.
+It determines **which entries are printed**, but directories are **always traversed** regardless of whether their names match the given pattern.
+
+```
+$ dirtree demo/subdir2/
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir2/
+  brokenlink                                                  ta:ta                 8         0    l
+  symboliclink                                                ta:ta                 6         0    l
+  textfile1.txt                                               ta:ta              1024         8     
+  textfile2.txt                                               ta:ta              2048         8     
+----------------------------------------------------------------------------------------------------
+2 files, 0 directories, 2 links, 0 pipes, and 0 sockets                          3086        16
+
+$ dirtree -f '.txt' demo/subdir2/
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/subdir2/
+  textfile1.txt                                               ta:ta              1024         8     
+  textfile2.txt                                               ta:ta              2048         8     
+----------------------------------------------------------------------------------------------------
+2 files, 0 directories, 0 links, 0 pipes, and 0 sockets                          3072        16
+
+```
+
+#### Matching rules
+* **Partial matching**: the pattern may match any contiguous substring of the file or directory name.
+* Matching is **case-sensitive** (e.g., 'a' vs 'A') and applies to the **basename** (not the full path).
+  * e.g., a path ‘/home/ta/abc/def’ does not match a pattern ‘c/d’: basename ‘def’ vs pattern ‘c/d’
+* Handling entries
+  * Matched → Printed with full details & counted in stats
+  * Not matched → Not printed & not counted in stats
+    * Directories are still traversed; if at least one descendant matches → Print only ‘path/name’ for that parent directories (with proper indentation)
+```
+$ dirtree -f 'k' abc
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+abc
+  def
+    ghi
+      jkl                                                     ta:ta                 0         0     
+----------------------------------------------------------------------------------------------------
+1 file, 0 directories, 0 links, 0 pipes, and 0 sockets                              0         0
+
+```
+
+#### Supported Wildcards
+| wildcard | Description |
+|:---  |:--- |
+| `?` | Matches exactly one arbitrary character |
+| `*` | Kleene star; repeats the immediately preceding character or a `group` zero or more times |
+| `()` | Grouping; encloses a subpattern so it can be treated as a `group` |
+
+Here, a `group` is a subpattern wrapped in `()` and treated as a single unit. For example:
+* `a(bc)*d`: the group `bc` is repeated by `*`; so it may appear **zero or more times**.
+
+> **Note 1**: Test cases requiring `?`, `*`, `()` as **literal characters** are not considered. You do not need to handle them.
+
+> **Note 2**: Maximum pattern length is limited to **64** (including the last `\0` character).
+
+#### Pattern matching examples
+| Pattern | Matches | Explanation |
+| :- | :- | :- |
+| `a?c` | `abc`, `axc`, ... | `?` matches exactly one arbitrary character |
+| `ab*`           | `a`, `ab`, `abb`, `abbbb...`, ... | `*` repeats the preceding `b` zero or more times |
+| `(ab)*c` | `c`, `abc`, `ababc`, `abababc`, ... | `()` groups `ab` as a subpattern, then `*` repeats it |
+| `ab?(de)*f` | `abcf`, `abXf`, `abcdef`, `abXdef`, `abXdedef`, ... | Combined usage: `?` = any char, `de` = groups `de` as a subpattern, `(de)*` = the group `de` may appear zero or more times |
+
+Example 1: `?`
+```
+$ dirtree pat1
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat1
+  subdir1                                                     ta:ta              4096         8    d
+    aXc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  axc                                                         ta:ta                 1         8     
+  zxc                                                         ta:ta                 1         8     
+  zzz                                                         ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+5 files, 1 directory, 0 links, 0 pipes, and 0 sockets                            4101        48
+
+$ dirtree -f 'a?c' pat1
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat1
+  subdir1
+    aXc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  axc                                                         ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+3 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             3        24
+
+```
+> **Note 1**: When specifying the pattern as a program argument, it must be enclosed in quotes (`' '` or `" "`) to ensure the shell does not interpret wildcards before passing them to the program.
+
+> **Note 2**: The root directory does not need to be filtered (e.g., `pat1/` in Example 1).
+
+Example 2: `*` + `()`
+```
+$ dirtree pat2
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat2
+  outer                                                       ta:ta              4096         8    d
+    inner                                                     ta:ta              4096         8    d
+      ababc                                                   ta:ta                 1         8     
+  abababc                                                     ta:ta                 1         8     
+  ababc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  abxy                                                        ta:ta                 1         8     
+  c                                                           ta:ta                 1         8     
+  xababcx                                                     ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+7 files, 2 directories, 0 links, 0 pipes, and 0 sockets                          8199        72
+
+$ dirtree -f '(ab)*c' pat2
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat2
+  outer
+    inner
+      ababc                                                   ta:ta                 1         8     
+  abababc                                                     ta:ta                 1         8     
+  ababc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  c                                                           ta:ta                 1         8     
+  xababcx                                                     ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+6 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             6        48
+
+$ dirtree -f 'b(ab)*c' pat2   # 'pat2/c' will be filtered
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat2
+  outer
+    inner
+      ababc                                                   ta:ta                 1         8     
+  abababc                                                     ta:ta                 1         8     
+  ababc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  xababcx                                                     ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+5 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             5        40
+
+```
+
+Example 3: `?` + `*` + `()`
+```
+$ dirtree pat3
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat3
+  A                                                           ta:ta              4096         8    d
+    hold                                                      ta:ta              4096         8    d
+      aef                                                     ta:ta                 1         8     
+      ef                                                      ta:ta                 1         8     
+  B                                                           ta:ta              4096         8    d
+    none                                                      ta:ta              4096         8    d
+      here                                                    ta:ta                 1         8     
+  abxdbydef                                                   ta:ta                 1         8     
+  abxdef                                                      ta:ta                 1         8     
+  aef                                                         ta:ta                 1         8     
+  alpha                                                       ta:ta                 1         8     
+  ef                                                          ta:ta                 1         8     
+  g                                                           ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+9 files, 4 directories, 0 links, 0 pipes, and 0 sockets                         16393       104
+
+$ dirtree -f 'a(b?d)*ef' pat3
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat3
+  A
+    hold
+      aef                                                     ta:ta                 1         8     
+  abxdbydef                                                   ta:ta                 1         8     
+  abxdef                                                      ta:ta                 1         8     
+  aef                                                         ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+4 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             4        32
+
+```
+
+#### Handling invalid patterns
+You must handle invalid pattern inputs. Compare the output of your solution with the reference binary, which ensures consistent behavior for both valid and invalid patterns.
+
+1. Empty pattern or group is not allowed: A pattern or group must contain at least one element.
+  * Entire pattern must not be empty; e.g., `$ dirtree -f '' demo`
+  * `a()b` → invalid (empty `group`)
+
+2. Improper use of `*`: `*` must always follow a valid character or `group`. Using `*` at the beginning is invalid. Using consecutive `*`s is also invalid.
+  * `*abc` → invalid (`*` at the beginning)
+  * `a**b` → invalid (multiple `*` with no character in between)
+
+3. Unmatched or misused `()`: `()` must always form a valid, balanced group. Missing, extra, or misplaced `()` make the pattern invalid.
+  * `a)bc(` → invalid (closing before opening, or stray `(`)
+  * `(abc` → invalid (missing closing `)`)
+
+When an invalid pattern is detected, **only** the following error message must be printed:
+```
+$ dirtree -f 'a**b' demo
+Invalid pattern syntax
+```
+
+> **Note**: You do not need to handle cases such as:
+> 
+> (1) `*` applied inside of `()`, or
+> 
+> (2) nested `()`s like `(())`.
+>  
+> These cases will not be included in the grading. 
+
+### Error handling
+Errors that occur while processing a directory (e.g., **permission denied**) must be reported in place of that directory's entries. 
+
+> **Note 1**: All error messages must be printed to `stderr`, not `stdout`.
+>
+>... Then, why should we separate stdout and stderr? Think about this question yourself or look it up.
+
+You can change the permission of specific directory by `chmod 000 <dir_name>` command:
+```bash
+# Before chmod
+$ dirtree anyone_can_access_dir
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+anyone_can_access_dir/
+  only_root_can_access_dir                                    ta:ta              4096         8    d
+    only_root_can_access_file                                 ta:ta                 1         8     
+  anyone_can_access_file                                      ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+2 files, 1 directory, 0 links, 0 pipes, and 0 sockets                            4098        24
+
+$ chmod 000 anyone_can_access_dir/only_root_can_access_dir
+
+# After chmod
+$ dirtree anyone_can_access_dir/
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+anyone_can_access_dir/
+  only_root_can_access_dir                                    ta:ta              4096         8    d
+    ERROR: Permission denied
+  anyone_can_access_file                                      ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+1 file, 1 directory, 0 links, 0 pipes, and 0 sockets                             4097        16
+
+```
+
+**Non-existent directory entries** must also be reported explicitly.
+```bash
+$ dirtree non_existent_dir
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+non_existent_dir
+  ERROR: No such file or directory
+----------------------------------------------------------------------------------------------------
+0 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             0         0
+
+```
+
+> **Note 2**: A *directory entry* refers to the name stored in a directory. A *file* refers to the underlying *inode* and its contents. 
+> 
+> When scanning a directory, dirtree may discover an entry, but by the time it calls `stat()`/`lstat()` to access the corresponding file, the file may already have been removed or renamed. In this case, the entry is shown with an error message (`ERROR: No such file or directory`), and you must handle this case gracefully as part of normal execution.
+
+> **Note 3**: When `-f` option is enabled, you must suppress errors for entries inside directories that do not match the given pattern. In other words, if the parent directory itself does not match the pattern, then all of its non-matching descendants (including those that have disappeared) must remain completely silent in the output.
+
+```
+$ dirtree -f 'anyone' anyone_can_access_dir/
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+anyone_can_access_dir/
+  anyone_can_access_file                                      ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+1 file, 0 directories, 0 links, 0 pipes, and 0 sockets                              1         8
+
+```
+
+**Any other errors do not need to be handled** and will not be included in the grading test cases.
+
+---
+---
+
+## Your Task
+
+Implement dirtree according to the specification above.
+
+### Design
+
+**Recommendation**: Do not look at the provided `src/dirtree.c` yet! First outline the logic yourself. 
+The design phase is the most difficult and important part of any project;
+and it is also the phase that requires the most practice and distinguishes hobby programmers from experts.
+
+### Implementation
+
+Once you have designed the outline, you can start implementing it. We provide a skeleton code to help you get started.
+
+You have to implement the following two parts:
+1. `main()`:
+   * Iterate over `directories`. 
+   * For each directory, 
+     * Print the header.
+     * Call `process_dir()` with the proper options and initial depth.
+     * Print the footer and per-directory summary line.
+     * If multiple directories were processed, print the aggregate statistics at the end.
+2. `process_dir()`:
+   * Open the directory; on failure, emit the error to stderr in place of its entries.
+   * Enumerate directory entries; skip `.` and `..`.
+   * Sort directory entries (directories before non-directory files, then alphabetical order).
+   * For each entry:
+     * Print path/name and detaild information using the output format (apply indentation, width, alignment, and truncation rules).
+     * Update the per-directory statistics (and the aggregate statistics, if applicable).
+     * If current entry is a directory, call `process_dir()` recursively.
+   * Close the directory before returning.
+   * Respect the `-d <depth>` option by stopping recursion when the maximum depth is reached.  
+   * Respect the `-f <pattern>` option by suppressing printing of non-matching entries, while still traversing directories if necessary.
+  
+---
+---
+
+## Handout Overview
+
+The handout contains the following files and directories:
+
+| File/Directory | Description |
+|:---  |:--- |
+| README.md | This file (assignment description) | 
+| Makefile | Build driver for the project |
+| src/dirtree.c | Skeleton source file. Implement your solution by editing this file or from scratch. |
+| reference/ | Reference implementation |
+| tools/ | Utilities to generate directory trees for testing |
+
+### Reference implementation
+
+The `reference/` directory contains the official reference implementation. You can use it to compare your solution's output against the expected output.
+
+### Makefile
+
+
+### Tools
+
+The `tools` directory contains utilities for generating test directory trees to validate your solution.
+
+| File/Directory | Description |
+|:---  |:--- |
+| gentree.sh | Utility to generate a test directory tree. |
+| compare.sh | Utility to compare the reference output with your output. |
+| mksock     | Helper program to generate a Unix socket used in `gentree.sh`. |
+| *.tree     | Script files describing directory tree layout. |
+
+To generate a test tree, invoke `gentree.sh` with one of the provided script files.
+
+Assuming you are located in the assignment2 directory, use the following command to generate the `demo` directory tree:
+```bash
+$ ls
+Makefile  README.md  reference  src  tools
+$ cd tools/
+$ ./gentree.sh demo.tree 
+Generating tree from 'tools/demo.tree'...
+Done. Generated 4 files, 2 links, 1 fifos, and 1 sockets. 0 errors reported.
+```
+
+You can list the contents of the tree with the reference implementation:
+```bash
+$ ../reference/dirtree demo/
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+demo/
+  subdir1                                                     ta:ta              4096         8    d
+    simplefile                                                ta:ta               256         8     
+    sparsefile                                                ta:ta              8192         8     
+    thisisanextremelyveryverylongfilenameforsuchasi...        ta:ta              1000         8     
+  subdir2                                                     ta:ta              4096         8    d
+    brokenlink                                                ta:ta                 8         0    l
+    symboliclink                                              ta:ta                 6         0    l
+    textfile1.txt                                             ta:ta              1024         8     
+    textfile2.txt                                             ta:ta              2048         8     
+  subdir3                                                     ta:ta              4096         8    d
+    code1.c                                                   ta:ta               200         8     
+    code2.c                                                   ta:ta               300         8     
+    pipe                                                      ta:ta                 0         0    f
+    socket                                                    ta:ta                 0         0    s
+  one                                                         ta:ta                 1         8     
+  two                                                         ta:ta                 2         8     
+----------------------------------------------------------------------------------------------------
+9 files, 3 directories, 2 links, 1 pipe, and 1 socket                           25325        96
+
+```
+
+---
+---
+
+### Hints
+
+#### Skeleton code
+The skeleton code is provided to help you get started. You may modify it in any way you see fit - or implement this lab completely from scratch.
+
+The skeleton code provides:
+* `const char* print_formats[]`: Predefined format strings used in the output (e.g., table headers, error messages, per-entry line format)
+* `struct summary`: Data structures for per-directory and aggregate statistics 
+* `get_next()` : A helper function to read the next entry (skipping `.` and `..`)
+* `dirent_compare()`: A `qsort` comparator to sort entries
+* `syntax()` and `main()`: Full argument parsing and syntax helpers. 
+
+#### C library calls
+
+When learning any programming language, it is often difficult at the beginning to know which library functions exist and how to use them. To help you get started, we provide a list of C library and system calls, grouped by topic, that may be useful for solving this lab. Read the corresponding man pages carefully to understand exactly how each function operates.
+
+<table>
+  <thead>
+    <tr>
+      <th align="left">Topic</th>
+      <th align="left">C library call</th>
+      <th align="left">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="4">
+        String operations
+      </td>
+      <td>
+        <code>strcmp()</code>
+      </td>
+      <td>
+        compare two strings
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>strncpy()</code>
+      </td>
+      <td>
+        copy up to n characters of one string into another
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>strdup()</code>
+      </td>
+      <td>
+        create a copy of a string. Use <code>free()</code> to free it after use
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>asprintf()</code>
+      </td>
+      <td>
+        asprintf() is extremely helpful to print into a string and allocate memory for it at the same time.
+        We will show some examples during the lab session.
+      </td>
+    </tr>
+    <tr>
+      <td rowspan="3">
+        Directory management
+      </td>
+      <td>
+        <code>opendir()</code>
+      </td>
+      <td>
+        open a directory to enumerate its entries
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>closedir()</code>
+      </td>
+      <td>
+        close an open directory
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>readdir()</code>
+      </td>
+      <td>
+        read next entry from directory
+      </td>
+    </tr>
+    <tr>
+      <td rowspan="2">
+        File metadata
+      </td>
+      <td>
+        <code>stat()</code>
+      </td>
+      <td>
+        retrieve metadata of a file, follow links
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>lstat()</code>
+      </td>
+      <td>
+        retrieve metadata of a file, do not follow links
+      </td>
+    </tr>
+    <tr>
+      <td rowspan="2">
+        User/group information
+      </td>
+      <td>
+        <code>getpwuid()</code>
+      </td>
+      <td>
+        retrieve user information (including their name) for a given user ID
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <code>getgrgid()</code>
+      </td>
+      <td>
+        retrieve group information (including its name) for a given group ID
+      </td>
+    </tr>
+    <tr>
+      <td>
+        Sorting
+      </td>
+      <td>
+        <code>qsort()</code>
+      </td>
+      <td>
+        quick-sort an array
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+> **Important**: You are **not allowed to use external libraries (e.g., `regex.h`)** for pattern filtering, and `scandir()` from `dirent.h` when you implement `process_dir()`. These features must be implemented entirely by yourself.
+However, you may consult those libraries’ interfaces and behavior to get implementation ideas.
+
+## Frequently Asked Questions (FAQ)
+
+**Question 1.** '$ ./gentree.sh demo.tree' command does not work!
+```bash
+Generating tree from 'tools/demo.tree'...
+Failed to create named pipe './demo/subdir3/pipe'.
+Failed to create unix socket './demo/subdir3/socket'.
+Done. Generated 4 files, 2 links, 0 fifos, and 0 sockets. 2 errors reported.
+```
+
+**Answer.** Please **delete** the previously created directory and run ./gentree.sh demo.tree again.
+```bash
+$ rm -rf demo/
+$ ./gentree.sh demo.tree
+```
+
+**Question 2.** Does the 54-byte limit apply to the indentation in the left side of the file/dir name? 
+
+**Answer.** Yes. The 54-byte limit includes the indentation space in the left side of the name.
+
+**Question 3.** What is the **maximum path length limit** for the target directory?
+
+**Answer.** You don't need to handle path length overflow explicitly. Simply use the `MAX_PATH_LEN` macro in the skeleton code. You can also modify the value of that macro if necessary.
+
+**Question 4.** How to execute dirtree command like the examples?
+
+**Answer.** Use `alias` command for your easy execution!
+
+But `alias` command is not permanent; if you want to keep using `alias` after logging out and back in out servers, 
+you need to add it to `~/.bashrc`.
+```bash
+$ alias dirtree=/home/sp[your student id]/assignment2/bin/dirtree
+$ cd ~/assignment2/tools
+$ dirtree pat1
+Name                                                        User:Group           Size    Blocks Type
+----------------------------------------------------------------------------------------------------
+pat1
+  subdir1                                                     ta:ta              4096         8    d
+    aXc                                                       ta:ta                 1         8     
+  abc                                                         ta:ta                 1         8     
+  axc                                                         ta:ta                 1         8     
+  zxc                                                         ta:ta                 1         8     
+  zzz                                                         ta:ta                 1         8     
+----------------------------------------------------------------------------------------------------
+5 files, 1 directory, 0 links, 0 pipes, and 0 sockets                            4101        48
+
+```
+
+
+<div align="center" style="font-size: 1.75em;">
+
+**Happy coding!**
+</div>
