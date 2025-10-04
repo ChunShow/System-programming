@@ -31,7 +31,7 @@ $ tar -xvzf assignment2.tar.gz
 
 ### Submission
 
-As in lab-1-decomment, create a directory named after your student number, compress it up, and submit it to to Classum submission page. Be sure to follow the following directory structure:
+As in lab-1-decomment, create a directory named after your student number, compress it up, and submit it to Classum submission page. Be sure to follow the following directory structure:
 
 ```bash
 202500000_assign2
@@ -79,7 +79,7 @@ demo
 
 ```
 
-Last but not least, dirtree can generate aggregate statistics over several directories:
+Last but not least, dirtree can generate aggregate statistics for several directories:
 ```
 $ dirtree demo/subdir1 demo/subdir2
 Name                                                        User:Group           Size    Blocks Type
@@ -134,7 +134,7 @@ If none is specified, the current directory (`.`) is traversed by default.
 
 1. Dirtree recursively traverses each directory in the `Directories` list. 
 2. Within each directory, it enumerates all entries and prints them in **alphabetical order**. Directories are listed before files, and the special entries `.` and `..` are ignored.
-3. After processing a directory, a **summary line** is printed. If more than one directories are traversed, **aggregate statistics** are printed at the end.
+3. After processing a directory, a **summary line** is printed. If more than one directory is traversed, **aggregate statistics** are printed at the end.
 
 ### Output
 
@@ -153,7 +153,7 @@ Indentation increases by **two spaces** for each level of depth, making the dire
 </table>
 
 #### Detailed information
-To the right of the path and name, dirtree prints the following details for each entry:
+To the right of the path/name, dirtree prints the following details for each entry:
 * User and group: Each file in Unix belongs to a user and a group. The names of the user and the group are printed, separated by a colon (`:`).
 * Size: The size of the file in bytes.
 * Disk blocks: The number of disk blocks occupied by the file. 
@@ -256,7 +256,7 @@ Name                                                        User:Group          
 <summary line                                                      >   <  total size> <totblks>
 
 ```
-> **Note 1**: When the field length is exactly equal to its maximum width (e.g., a path and name of 54 characters), no cutting or truncation is applied.
+> **Note 1**: When the field length is exactly equal to its maximum width (e.g., a path/name of 54 characters), no cutting or truncation is applied.
 
 > **Note 2**: In this assignment, your userid and group are set to "sp" + 9-digit student IDs. Use a format specifier such as `printf("%.8s");` to enforce the 8-byte limit.
 
@@ -341,14 +341,14 @@ test1/a
 1 file, 3 directories, 0 links, 0 pipes, and 0 sockets                          12288        24
 
 ```
-... You do not neet to print `# depth N`; this is only shown in the examples to help your understanding.
+... You do not need to print `# depth N`; this is only shown in the examples to help your understanding.
 
 #### Notes
 * Valid depth values are `1 ~ 20`.
 * If the `-d` option is not specified, the default maximum depth is **20**.
   * You do not need to handle cases where the maximum reachable depth is greater than 20. 
   * See `MAX_DEPTH` macro in the skeleton code. 
-* Inherently, statistics (both per-directory summary and aggregate statistics) should **not** count that skipped files when their depth is greater than the given `depth`.
+* Inherently, statistics (both per-directory summary and aggregate statistics) should **not** count skipped entries when their depth is greater than the given `depth`.
 
 ### Option 2: File name filtering `-f \<pattern>` 
 
@@ -382,11 +382,11 @@ demo/subdir2/
 #### Matching rules
 * **Partial matching**: the pattern may match any contiguous substring of the file or directory name.
 * Matching is **case-sensitive** (e.g., 'a' vs 'A') and applies to the **basename** (not the full path).
-  * e.g., a path ‘/home/ta/abc/def’ does not match a pattern ‘c/d’: basename ‘def’ vs pattern ‘c/d’
+  * e.g., a path ‘/home/ta/abc/def’ does not match a pattern ‘abc’: basename ‘def’ vs pattern ‘abc’
 * Handling entries
   * Matched → Printed with full details & counted in stats
   * Not matched → Not printed & not counted in stats
-    * Directories are still traversed; if at least one descendant matches → Print only ‘path/name’ for that parent directories (with proper indentation)
+    * However, directories are still traversed; if at least one descendant matches → Print only ‘path/name’ for that non-matching parent directories (with proper indentation)
 ```
 $ dirtree -f 'k' abc
 Name                                                        User:Group           Size    Blocks Type
@@ -554,12 +554,6 @@ You must handle invalid pattern inputs. Compare the output of your solution with
   * `a)bc(` → invalid (closing before opening, or stray `(`)
   * `(abc` → invalid (missing closing `)`)
 
-When an invalid pattern is detected, **only** the following error message must be printed:
-```
-$ dirtree -f 'a**b' demo
-Invalid pattern syntax
-```
-
 > **Note**: You do not need to handle cases such as:
 > 
 > (1) `*` applied inside of `()`, or
@@ -568,73 +562,16 @@ Invalid pattern syntax
 >  
 > These cases will not be included in the grading. 
 
-### Error handling
-Errors that occur while processing a directory (e.g., **permission denied**) must be reported in place of that directory's entries. 
-
-> **Note 1**: All error messages must be printed to `stderr`, not `stdout`.
->
->... Then, why should we separate stdout and stderr? Think about this question yourself or look it up.
-
-You can change the permission of specific directory by `chmod 000 <dir_name>` command:
-```bash
-# Before chmod
-$ dirtree anyone_can_access_dir
-Name                                                        User:Group           Size    Blocks Type
-----------------------------------------------------------------------------------------------------
-anyone_can_access_dir/
-  only_root_can_access_dir                                    ta:ta              4096         8    d
-    only_root_can_access_file                                 ta:ta                 1         8     
-  anyone_can_access_file                                      ta:ta                 1         8     
-----------------------------------------------------------------------------------------------------
-2 files, 1 directory, 0 links, 0 pipes, and 0 sockets                            4098        24
-
-$ chmod 000 anyone_can_access_dir/only_root_can_access_dir
-
-# After chmod
-$ dirtree anyone_can_access_dir/
-Name                                                        User:Group           Size    Blocks Type
-----------------------------------------------------------------------------------------------------
-anyone_can_access_dir/
-  only_root_can_access_dir                                    ta:ta              4096         8    d
-    ERROR: Permission denied
-  anyone_can_access_file                                      ta:ta                 1         8     
-----------------------------------------------------------------------------------------------------
-1 file, 1 directory, 0 links, 0 pipes, and 0 sockets                             4097        16
-
+#### Error handling (updated: 2025.09.24 03:00)
+When an invalid pattern is detected, **only** the following error message must be printed:
+```
+$ dirtree -f 'a**b' demo
+Invalid pattern syntax
 ```
 
-**Non-existent directory entries** must also be reported explicitly.
-```bash
-$ dirtree non_existent_dir
-Name                                                        User:Group           Size    Blocks Type
-----------------------------------------------------------------------------------------------------
-non_existent_dir
-  ERROR: No such file or directory
-----------------------------------------------------------------------------------------------------
-0 files, 0 directories, 0 links, 0 pipes, and 0 sockets                             0         0
+* This error message must be printed to `stderr`, not to `stdout`. Simply use the panic() function provided in the skeleton code.
+* **Any other errors do not need to be handled** and will not be included in the grading.
 
-```
-
-> **Note 2**: A *directory entry* refers to the name stored in a directory. A *file* refers to the underlying *inode* and its contents. 
-> 
-> When scanning a directory, dirtree may discover an entry, but by the time it calls `stat()`/`lstat()` to access the corresponding file, the file may already have been removed or renamed. In this case, the entry is shown with an error message (`ERROR: No such file or directory`), and you must handle this case gracefully as part of normal execution.
-
-> **Note 3**: When `-f` option is enabled, you must suppress errors for entries inside directories that do not match the given pattern. In other words, if the parent directory itself does not match the pattern, then all of its non-matching descendants (including those that have disappeared) must remain completely silent in the output.
-
-```
-$ dirtree -f 'anyone' anyone_can_access_dir/
-Name                                                        User:Group           Size    Blocks Type
-----------------------------------------------------------------------------------------------------
-anyone_can_access_dir/
-  anyone_can_access_file                                      ta:ta                 1         8     
-----------------------------------------------------------------------------------------------------
-1 file, 0 directories, 0 links, 0 pipes, and 0 sockets                              1         8
-
-```
-
-**Any other errors do not need to be handled** and will not be included in the grading test cases.
-
----
 ---
 
 ## Your Task
@@ -660,18 +597,17 @@ You have to implement the following two parts:
      * Print the footer and per-directory summary line.
      * If multiple directories were processed, print the aggregate statistics at the end.
 2. `process_dir()`:
-   * Open the directory; on failure, emit the error to stderr in place of its entries.
+   * Open the directory
    * Enumerate directory entries; skip `.` and `..`.
    * Sort directory entries (directories before non-directory files, then alphabetical order).
    * For each entry:
-     * Print path/name and detaild information using the output format (apply indentation, width, alignment, and truncation rules).
+     * Print path/name and detailed information using the output format (apply indentation, width, alignment, and truncation rules).
      * Update the per-directory statistics (and the aggregate statistics, if applicable).
      * If current entry is a directory, call `process_dir()` recursively.
    * Close the directory before returning.
    * Respect the `-d <depth>` option by stopping recursion when the maximum depth is reached.  
-   * Respect the `-f <pattern>` option by suppressing printing of non-matching entries, while still traversing directories if necessary.
+   * Respect the `-f <pattern>` option by suppressing printing of non-matching entries, while still traversing directories.
   
----
 ---
 
 ## Handout Overview
@@ -690,8 +626,18 @@ The handout contains the following files and directories:
 
 The `reference/` directory contains the official reference implementation. You can use it to compare your solution's output against the expected output.
 
-### Makefile
+### How to use Makefile
+*  You should keep the directory structure as specified in the `Makefile`:
 
+| File | Path |
+|:---  |:--- |
+| dirtree.c | ~/assignment2/src/ |
+| dirtree (executable file) | ~/assignment2/bin/ |
+
+* You don’t need to modify the content of `Makefile`. Just remember two commands:
+  * `$ make`: compiles dirtree.c.
+  * `$ make clean`: removes compilation results (useful to force a full rebuild).
+* Most of the time, it is enough to just run `$ make` command after editing your source code.
 
 ### Tools
 
@@ -744,9 +690,45 @@ demo/
 ```
 
 ---
----
 
 ### Hints
+
+#### Pseudo code for file name filtering (`*`-only version)
+This pseudo code implements file name filtering in a recursive manner, supporting only the `*` wildcard.
+The recursive branching at `*` keeps the logic simple and elegant.
+By extending the same recursive manner, you can easily add `?` and `()` support.
+
+```c
+bool match(str, pattern):
+  while *str != ‘\0’:
+    if submatch(str, pattern): // try partial matching
+      return TRUE
+    str++
+  
+  return FALSE
+
+bool submatch(s, p):
+  while *s and *p is not ‘\0’:
+    if *p != ‘*’:
+      if *(p + 1) == ‘*’:
+        // save the preceding character for repetition
+      else if *s != *p:
+        return FALSE
+      else s++
+      p++
+      
+    else: // *p == ‘*’
+      if submatch(s, p + 1): // zero repetition
+        return TRUE
+      else:  
+        // one or more repetition
+      return FALSE
+
+  if *p == ‘\0’: // pattern matched
+    return TRUE
+    
+  return FALSE	
+```
 
 #### Skeleton code
 The skeleton code is provided to help you get started. You may modify it in any way you see fit - or implement this lab completely from scratch.
@@ -758,7 +740,7 @@ The skeleton code provides:
 * `dirent_compare()`: A `qsort` comparator to sort entries
 * `syntax()` and `main()`: Full argument parsing and syntax helpers. 
 
-#### C library calls
+#### Useful C library calls
 
 When learning any programming language, it is often difficult at the beginning to know which library functions exist and how to use them. To help you get started, we provide a list of C library and system calls, grouped by topic, that may be useful for solving this lab. Read the corresponding man pages carefully to understand exactly how each function operates.
 
@@ -913,11 +895,11 @@ $ ./gentree.sh demo.tree
 
 **Answer.** You don't need to handle path length overflow explicitly. Simply use the `MAX_PATH_LEN` macro in the skeleton code. You can also modify the value of that macro if necessary.
 
-**Question 4.** How to execute dirtree command like the examples?
+**Question 4.** How to execute the dirtree command like the examples?
 
 **Answer.** Use `alias` command for your easy execution!
 
-But `alias` command is not permanent; if you want to keep using `alias` after logging out and back in out servers, 
+But `alias` command is not permanent; if you want to keep using `alias` after logging out and back in on servers, 
 you need to add it to `~/.bashrc`.
 ```bash
 $ alias dirtree=/home/sp[your student id]/assignment2/bin/dirtree
