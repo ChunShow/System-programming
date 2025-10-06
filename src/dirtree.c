@@ -28,8 +28,12 @@
 /// @brief maximum numbers
 #define MAX_DIR 64            ///< maximum number of supported directories
 #define MAX_PATH_LEN 1024     ///< maximum length of a path
+#define MAX_FILE_LEN 1024     ///< maximum length of a file
 #define MAX_DEPTH 20          ///< maximum depth of directory tree (for -d option)
 int max_depth = MAX_DEPTH;    ///< maximum depth of directory tree (for -d option)
+
+/// @brief initial numbers
+#define INITIAL_CAPACITY 64   ///< initial capacity for array
 
 /// @brief struct holding the summary
 struct summary {
@@ -48,9 +52,9 @@ const char *print_formats[8] = {
   "Name                                                        User:Group           Size    Blocks Type\n",
   "----------------------------------------------------------------------------------------------------\n",
   "%-54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
-  "%-51s...  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
+  "%-51.51s...  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "%-68s   %14llu %9llu\n\n",
-  "%-65s...   %14llu %9llu\n\n",
+  "%-65.65s...   %14llu %9llu\n\n",
   "Invalid pattern syntax",
 };
 const char* pattern = NULL;  ///< pattern for filtering entries
@@ -113,6 +117,42 @@ static int dirent_compare(const void *a, const void *b)
 }
 
 
+/// @brief Reads all directory entries into a dynamically allocated array.
+///
+/// @param dir An open directory stream.
+/// @param count Pointer to store the final number of entries read.
+/// @retval A pointer to the dynamically allocated array of dirent structs, or NULL on failure.
+static struct dirent* read_entries(DIR *dir, size_t *count)
+{
+  size_t capacity = INITIAL_CAPACITY;
+  struct dirent *entry = NULL;
+  
+  *count = 0;
+
+  /// Allocate the initial array for the directory entries themselves.
+  struct dirent *entries = malloc(capacity * sizeof(struct dirent));
+  if (!entries) return NULL;
+
+  while ((entry = get_next(dir)) != NULL) {
+    /// If the array is full, double its capacity.
+    if (*count == capacity) {
+      capacity *= 2;
+      struct dirent *tmp = realloc(entries, capacity * sizeof(struct dirent));
+      if (!tmp) {
+        free(entries);
+        return NULL;
+      }
+      entries = tmp;
+    }
+    /// Copy the entry from the temporary buffer into our array.
+    memcpy(&entries[*count], entry, sizeof(struct dirent));
+    (*count)++;
+  }
+
+  return entries;
+}
+
+
 /// @brief recursively process directory @a dn and print its tree
 ///
 /// @param dn absolute or relative path string
@@ -121,9 +161,91 @@ static int dirent_compare(const void *a, const void *b)
 /// @param flags output control flags (F_*)
 void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
 {
-  //
-  // TODO
-  //
+  DIR *dir = NULL;                     ///< Pointer to the directory stream.
+  struct dirent *entries = NULL;       ///< Dynamically allocated array of entries.
+  size_t count = 0;                    ///< Number of entries read.
+
+  dir = opendir(dn);
+  if (!dir) {
+    panic("No such directory.", dn);
+  }
+
+  /// Read all entries from the directory into a dynamically allocated array.
+  entries = read_entries(dir, &count);
+  if (!entries) {
+    closedir(dir);
+    panic("Memory allocation failure.", NULL);
+  }
+
+  /// If the directory is not empty, sort and print the entries.
+  if (count > 0) {
+    qsort(entries, count, sizeof(struct dirent), dirent_compare);
+
+    int dd = dirfd(dir);               ///< Get the file descriptor for fstatat.
+
+    for (size_t i = 0; i < count; i++) {
+      struct stat sb;
+      if (fstatat(dd, entries[i].d_name, &sb, 0) < 0) {
+        perror(entries[i].d_name);     ///< Print error for the specific file and continue.
+        continue;
+      }
+
+      /// Add the stat info to the summary statistics.
+      stats->size += sb.st_size;
+      stats->blocks += sb.st_blocks;
+
+      /// Determine the character representing the file type and update stats.
+      char type_char = ' ';            ///< Default for regular files.
+      if (S_ISREG(sb.st_mode)) {
+        stats->files++;
+      } else if (S_ISDIR(sb.st_mode)) {
+        stats->dirs++;
+        type_char = 'd';
+      } else if (S_ISLNK(sb.st_mode)) {
+        stats->links++;
+        type_char = 'l';
+      } else if (S_ISFIFO(sb.st_mode)) {
+        stats->fifos++;
+        type_char = 'p';
+      } else if (S_ISSOCK(sb.st_mode)) {
+        stats->socks++;
+        type_char = 's';
+      }
+
+      /// Get user and group names from their IDs.
+      struct passwd *pw = getpwuid(sb.st_uid);
+      struct group  *gr = getgrgid(sb.st_gid);
+      const char *user_name = (pw) ? pw->pw_name : "unknown";
+      const char *group_name = (gr) ? gr->gr_name : "unknown";
+
+      /// Create the full output name by prepending the prefix string.
+      char file_name[MAX_FILE_LEN];
+      snprintf(file_name, sizeof(file_name), "%s%s", pstr, entries[i].d_name);
+
+      /// Print the formatted output.
+      const char *line_format = print_formats[2];
+      if (strlen(file_name) > 54) line_format = print_formats[3];
+      printf(line_format, file_name, user_name, group_name,
+            (unsigned long long)sb.st_size, (unsigned long long)sb.st_blocks, type_char);
+
+      if (type_char == 'd') {
+        // Construct the path for the subdirectory
+        char next_path[MAX_PATH_LEN];
+        snprintf(next_path, sizeof(next_path), "%s/%s", dn, entries[i].d_name);
+        
+        // Construct the new prefix for the next level
+        char next_pstr[MAX_PATH_LEN];
+        snprintf(next_pstr, sizeof(next_pstr), "%s  ", pstr);
+        
+        // Recursive call
+        process_dir(next_path, next_pstr, stats, flags);
+      }
+    }
+  }
+
+  /// Centralized cleanup for all resources.
+  free(entries);                       ///< Free the array of entries.
+  closedir(dir);                       ///< Close the directory stream.
 }
 
 
@@ -283,8 +405,9 @@ int main(int argc, char *argv[])
     
     printf("%s", print_formats[1]);
     char *sline = make_summary_line(&dstat);
-    if (strlen(sline) <= 68) printf(print_formats[4], sline, dstat.size, dstat.blocks);
-    else printf(print_formats[5], sline, dstat.size, dstat.blocks);
+    const char *sformat = print_formats[4];
+    if (strlen(sline) > 69) sformat = print_formats[5];
+    printf(sformat, sline, dstat.size, dstat.blocks);
 
     update_summary(&tstat, &dstat);
   }
