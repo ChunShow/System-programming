@@ -48,6 +48,9 @@ const char *print_formats[8] = {
   "Name                                                        User:Group           Size    Blocks Type\n",
   "----------------------------------------------------------------------------------------------------\n",
   "%-54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
+  "%-51s...  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
+  "%-68s   %14llu %9llu\n\n",
+  "%-65s...   %14llu %9llu\n\n",
   "Invalid pattern syntax",
 };
 const char* pattern = NULL;  ///< pattern for filtering entries
@@ -158,6 +161,56 @@ void syntax(const char *argv0, const char *error, ...)
 }
 
 
+/// @brief return singular or plural form depending on count
+///
+/// @param count number to check
+/// @param singular singular word
+/// @param plural plural word
+/// @retval singular if count == 1, otherwise plural
+const char *pluralize(unsigned int count, const char *singular, const char *plural)
+{
+    return (count == 1) ? singular : plural;
+}
+
+
+/// @brief create a summary line string from a summary structure
+///
+/// @param s pointer to the summary structure
+/// @retval pointer to a static string containing the summary line
+char* make_summary_line(const struct summary *s)
+{
+    static char buf[256];
+    snprintf(
+      buf, sizeof(buf),
+      "%u %s, %u %s, %u %s, %u %s, and %u %s",
+      s->files, pluralize(s->files, "file", "files"),
+      s->dirs,  pluralize(s->dirs,  "directory", "directories"),
+      s->links, pluralize(s->links, "link", "links"),
+      s->fifos, pluralize(s->fifos, "pipe", "pipes"),
+      s->socks, pluralize(s->socks, "socket", "sockets")
+    );
+    return buf;
+}
+
+
+/// @brief update total summary by adding sub-summary's values
+///
+/// @param tstat pointer to the total (accumulating) summary structure
+/// @param dstat pointer to the sub-summary structure whose values will be added
+void update_summary(struct summary *tstat, const struct summary *dstat)
+{
+  if (!tstat || !dstat) return;
+  
+    tstat->dirs   += dstat->dirs;
+    tstat->files  += dstat->files;
+    tstat->links  += dstat->links;
+    tstat->fifos  += dstat->fifos;
+    tstat->socks  += dstat->socks;
+    tstat->size   += dstat->size;
+    tstat->blocks += dstat->blocks;
+}
+
+
 /// @brief program entry point
 int main(int argc, char *argv[])
 {
@@ -219,17 +272,22 @@ int main(int argc, char *argv[])
   //
   // process each directory
   //
-  // TODO
-  //
-  // Pseudo-code
-  // - reset statistics (tstat)
-  // - loop over all entries in 'root directories' (number of entires stored in 'ndir')
-  //   - reset statistics (dstat)
-  //   - print header
-  //   - print directory name
-  //   - call process_dir() for the directory
-  //   - print summary & update statistics
-  //...
+  for (int i = 0; i < ndir; i++) {
+    struct summary dstat = {0};
+
+    printf("%s", print_formats[0]);
+    printf("%s", print_formats[1]);
+    printf("%s\n", directories[0]);
+  
+    process_dir(directories[i], "  ", &dstat, flags);
+    
+    printf("%s", print_formats[1]);
+    char *sline = make_summary_line(&dstat);
+    if (strlen(sline) <= 68) printf(print_formats[4], sline, dstat.size, dstat.blocks);
+    else printf(print_formats[5], sline, dstat.size, dstat.blocks);
+
+    update_summary(&tstat, &dstat);
+  }
 
 
   //
