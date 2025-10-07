@@ -3,13 +3,15 @@
 //
 /// @file
 /// @brief resursively traverse directory tree and list all entries
-/// @author <yourname>
-/// @studid <studentid>
+/// @author Junsu LEE
+/// @studid 2018-11603
 //--------------------------------------------------------------------------------------------------
 
+#define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -20,6 +22,7 @@
 #include <assert.h>
 #include <grp.h>
 #include <pwd.h>
+#include <fcntl.h>
 
 /// @brief output control flags
 #define F_DEPTH    0x1        ///< print directory tree
@@ -48,13 +51,15 @@ struct summary {
 };
 
 /// @brief print strings used in the output
-const char *print_formats[8] = {
+const char *print_formats[10] = {
   "Name                                                        User:Group           Size    Blocks Type\n",
   "----------------------------------------------------------------------------------------------------\n",
   "%-54s  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "%-51.51s...  %8.8s:%-8.8s  %10llu  %8llu    %c\n",
   "%-68s   %14llu %9llu\n\n",
   "%-65.65s...   %14llu %9llu\n\n",
+  "%-54s\n",
+  "%-51.51s...\n",
   "Invalid pattern syntax",
 };
 const char* pattern = NULL;  ///< pattern for filtering entries
@@ -153,13 +158,105 @@ static struct dirent* read_entries(DIR *dir, size_t *count)
 }
 
 
+/// @brief The core recursive engine for anchored pattern matching.
+/// @brief Checks if a pattern matches the beginning of a string.
+///
+/// @param str     The string to check.
+/// @param pattern The pattern to match against.
+/// @retval true   if the pattern is a prefix of the string.
+/// @retval false  otherwise.
+static bool submatch(const char *str, const char *pattern) {
+  // Base case: If the pattern is exhausted, we have a successful match.
+  if (*pattern == '\0') {
+    return true;
+  }
+
+  // Case 1: The next pattern element is followed by a '*'
+  if (*(pattern + 1) == '*') {
+
+    // Option A: The element repeats zero times.
+    if (submatch(str, pattern + 2)) {
+      return true;
+    }
+
+    // Option B: The element repeats one or more times.
+    if (*str != '\0' && (*pattern == '?' || *pattern == *str)) {
+      return submatch(str + 1, pattern);
+    }
+
+    return false;
+  }
+
+  // Case 2: The pattern element is a group `()`
+  if (*pattern == '(') {
+    const char *end = strchr(pattern, ')');
+    if (!end) return false;
+    int group_len = end - (pattern + 1);
+
+    char group_pattern[group_len + 1];
+    memcpy(group_pattern, pattern + 1, group_len);
+    group_pattern[group_len] = '\0';
+
+    if (*end != '\0' && *(end + 1) == '*') {
+      // Option A: The group repeats zero times.
+      if (submatch(str, end + 2)) {
+        return true;
+      }
+
+      // Option B: The group repeats one or more times.
+      if (submatch(str, group_pattern)) {
+        return submatch(str + group_len, pattern);
+      }
+
+    } else {
+      // Match the group content exactly once.
+      if (submatch(str, group_pattern)) {
+        // Advance both string and pattern past the matched group.
+        return submatch(str + group_len, end + 1);
+      }
+    }
+
+    return false;
+  }
+
+  // Case 3: The pattern is a normal character or '?' (not followed by '*')
+  if (*str != '\0' && (*pattern == '?' || *pattern == *str)) {
+    return submatch(str + 1, pattern + 1);
+  }
+
+  return false; // No match found.
+}
+
+
+/// @brief Checks if a pattern exists as a substring within a string.
+///
+/// @param str The string to search within.
+/// @param pattern The pattern to find.
+/// @retval true if the pattern is found.
+/// @retval false if the pattern is not found.
+bool match(const char *str, const char *pattern)
+{
+  do {
+    if (submatch(str, pattern)) {
+      return true;
+    }
+  } while (*str++ != '\0');
+
+  return false;
+}
+
+
 /// @brief recursively process directory @a dn and print its tree
 ///
 /// @param dn absolute or relative path string
 /// @param pstr prefix string printed in front of each entry
 /// @param stats pointer to statistics
 /// @param flags output control flags (F_*)
-void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags)
+/// @param depth current recursion depth of the directory traversal
+/// @param path_buffer buffer to store non-matching parent directory paths
+/// @param p_buffer_count pointer to the count of items in path_buffer
+void process_dir(const char *dn, const char *pstr, struct summary *stats, unsigned int flags, unsigned int depth,
+                 char *path_buffer[], size_t *p_buffer_count)
 {
   DIR *dir = NULL;                     ///< Pointer to the directory stream.
   struct dirent *entries = NULL;       ///< Dynamically allocated array of entries.
@@ -167,7 +264,10 @@ void process_dir(const char *dn, const char *pstr, struct summary *stats, unsign
 
   dir = opendir(dn);
   if (!dir) {
-    panic("No such directory.", dn);
+    char error_msg[MAX_FILE_LEN];
+    snprintf(error_msg, sizeof(error_msg), "%s%s", pstr, "ERROR");
+    perror(error_msg);
+    return;
   }
 
   /// Read all entries from the directory into a dynamically allocated array.
@@ -177,19 +277,42 @@ void process_dir(const char *dn, const char *pstr, struct summary *stats, unsign
     panic("Memory allocation failure.", NULL);
   }
 
-  /// If the directory is not empty, sort and print the entries.
   if (count > 0) {
     qsort(entries, count, sizeof(struct dirent), dirent_compare);
+  }
 
-    int dd = dirfd(dir);               ///< Get the file descriptor for fstatat.
+  int dd = dirfd(dir);
 
-    for (size_t i = 0; i < count; i++) {
-      struct stat sb;
-      if (fstatat(dd, entries[i].d_name, &sb, 0) < 0) {
-        perror(entries[i].d_name);     ///< Print error for the specific file and continue.
-        continue;
+  for (size_t i = 0; i < count; i++) {
+    struct stat sb;
+    if (fstatat(dd, entries[i].d_name, &sb, AT_SYMLINK_NOFOLLOW) < 0) {
+      perror(entries[i].d_name);     ///< Print error for the specific file and continue.
+      continue;
+    }
+
+    bool is_dir = S_ISDIR(sb.st_mode);
+    bool is_matched = false;
+    if (flags & F_Filter) {
+      is_matched = match(entries[i].d_name, pattern);
+    } else {
+      is_matched = true; // If filter is off, everything is a match.
+    }
+    char file_name[MAX_FILE_LEN];
+
+    if (is_matched) {
+      // 1. A match is found! First, print any buffered parent paths.
+      if (*p_buffer_count > 0) {
+        for (size_t j = 0; j < *p_buffer_count; j++) {
+          const char *line_format = print_formats[6];
+          if (strlen(path_buffer[j]) > 54) line_format = print_formats[7];
+          printf(line_format, path_buffer[j]);
+          free(path_buffer[j]);
+          path_buffer[j] = NULL;
+        }
+        *p_buffer_count = 0;
       }
 
+      // 2. Now, print the current matched entry.
       /// Add the stat info to the summary statistics.
       stats->size += sb.st_size;
       stats->blocks += sb.st_blocks;
@@ -219,7 +342,6 @@ void process_dir(const char *dn, const char *pstr, struct summary *stats, unsign
       const char *group_name = (gr) ? gr->gr_name : "unknown";
 
       /// Create the full output name by prepending the prefix string.
-      char file_name[MAX_FILE_LEN];
       snprintf(file_name, sizeof(file_name), "%s%s", pstr, entries[i].d_name);
 
       /// Print the formatted output.
@@ -228,17 +350,39 @@ void process_dir(const char *dn, const char *pstr, struct summary *stats, unsign
       printf(line_format, file_name, user_name, group_name,
             (unsigned long long)sb.st_size, (unsigned long long)sb.st_blocks, type_char);
 
-      if (type_char == 'd') {
-        // Construct the path for the subdirectory
-        char next_path[MAX_PATH_LEN];
-        snprintf(next_path, sizeof(next_path), "%s/%s", dn, entries[i].d_name);
-        
-        // Construct the new prefix for the next level
-        char next_pstr[MAX_PATH_LEN];
-        snprintf(next_pstr, sizeof(next_pstr), "%s  ", pstr);
-        
-        // Recursive call
-        process_dir(next_path, next_pstr, stats, flags);
+    } else if (is_dir) {
+      // 3. Not a match, but it's a directory. Buffer its name and recurse.
+      snprintf(file_name, sizeof(file_name), "%s%s", pstr, entries[i].d_name);
+
+      if (*p_buffer_count < MAX_DEPTH) { // Prevent buffer overflow
+        path_buffer[*p_buffer_count] = strdup(file_name); // strdup allocates and copies
+        (*p_buffer_count)++;
+      }
+    }
+
+    /// Check conditions for recursive call
+    if (is_dir) {
+      // Check if the current depth has reached the maximum allowed depth
+      if (depth >= max_depth) {
+        continue;
+      }
+
+      // Construct the path for the subdirectory
+      char next_path[MAX_PATH_LEN];
+      snprintf(next_path, sizeof(next_path), "%s/%s", dn, entries[i].d_name);
+      
+      // Construct the new prefix for the next level
+      char next_pstr[MAX_PATH_LEN];
+      snprintf(next_pstr, sizeof(next_pstr), "%s  ", pstr);
+      
+      // Recursive call
+      size_t buffer_count_before = *p_buffer_count;
+      process_dir(next_path, next_pstr, stats, flags, depth + 1, path_buffer, p_buffer_count);
+
+      if (!is_matched && *p_buffer_count == buffer_count_before) {        
+        (*p_buffer_count)--;
+        free(path_buffer[*p_buffer_count]);
+        path_buffer[*p_buffer_count] = NULL;
       }
     }
   }
@@ -333,6 +477,51 @@ void update_summary(struct summary *tstat, const struct summary *dstat)
 }
 
 
+/// @brief evaluates a pattern for syntax errors and calls panic() if an error is found
+void evaluate_pattern()
+{
+  if (!pattern) {
+    return;
+  }
+
+  int len = strlen(pattern);
+
+  if (len == 0) {
+    panic(print_formats[8], NULL);
+  }
+
+  int paren_count = 0;
+
+  for (int i = 0; i < len; i++) {
+    char current = pattern[i];
+    char prev = (i > 0) ? pattern[i - 1] : '\0';
+
+    if (current == '(') {
+      paren_count++;
+      if (i + 1 < len && pattern[i + 1] == ')') {
+        panic(print_formats[8], NULL);
+      }
+    } else if (current == ')') {
+      if (paren_count == 0) {
+        panic(print_formats[8], NULL);
+      }
+      paren_count--;
+    } else if (current == '*') {
+      if (i == 0) {
+        panic(print_formats[8], NULL);
+      }
+      if (prev == '*' || prev == '(') {
+        panic(print_formats[8], NULL);
+      }
+    }
+  }
+
+  if (paren_count != 0) {
+    panic(print_formats[8], NULL);
+  }
+}
+
+
 /// @brief program entry point
 int main(int argc, char *argv[])
 {
@@ -390,6 +579,9 @@ int main(int argc, char *argv[])
   // if no directory was specified, use the current directory
   if (ndir == 0) directories[ndir++] = CURDIR;
 
+  if (flags & F_Filter) {
+    evaluate_pattern();
+  }
 
   //
   // process each directory
@@ -399,9 +591,12 @@ int main(int argc, char *argv[])
 
     printf("%s", print_formats[0]);
     printf("%s", print_formats[1]);
-    printf("%s\n", directories[0]);
+    printf("%s\n", directories[i]);
   
-    process_dir(directories[i], "  ", &dstat, flags);
+    // Create the buffer and count variable on the stack.
+    char *path_buffer[MAX_DEPTH] = { 0 };
+    size_t path_buffer_count = 0;
+    process_dir(directories[i], "  ", &dstat, flags, 1, path_buffer, &path_buffer_count);
     
     printf("%s", print_formats[1]);
     char *sline = make_summary_line(&dstat);
