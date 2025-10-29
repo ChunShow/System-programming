@@ -48,9 +48,14 @@ int   chunk_get_span_units(Chunk_T c);
 void  chunk_set_span_units(Chunk_T c, int span_units);
 
 /* chunk_get_next_free / chunk_set_next_free:
- * Get/Set the next pointer in the singly-linked free list. */
+ * Get/Set the next pointer in the doubly-linked free list. */
 Chunk_T chunk_get_next_free(Chunk_T c);
 void    chunk_set_next_free(Chunk_T c, Chunk_T next);
+
+/* chunk_get_prev_free / chunk_set_prev_free:
+ * Get/Set the prev pointer in the doubly-linked free list (using footer). */
+Chunk_T chunk_get_prev_free(Chunk_T c);
+void    chunk_set_prev_free(Chunk_T c, Chunk_T prev);
 
 /* chunk_get_adjacent:
  * Return the physically next adjacent block's header (if any) by walking
@@ -58,6 +63,13 @@ void    chunk_set_next_free(Chunk_T c, Chunk_T next);
  * 'start' and 'end' are the inclusive start and exclusive end addresses
  * of the heap region. */
 Chunk_T chunk_get_adjacent(Chunk_T c, void *start, void *end);
+
+/* chunk_get_prev_adjacent:
+ * Return the physically previous adjacent block's header (if any) by walking
+ * backward from 'c'. Returns NULL if 'c' is the first block.
+ * 'start' and 'end' are the inclusive start and exclusive end addresses
+ * of the heap region. */
+Chunk_T chunk_get_prev_adjacent(Chunk_T c, void *start, void *end);
 
 /* Debug-only sanity check (compiled only if NDEBUG is not defined). */
 #ifndef NDEBUG
