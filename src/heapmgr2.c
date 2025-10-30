@@ -1,5 +1,5 @@
 /*--------------------------------------------------------------------*/
-/* heapmgrbase.c                                                      */
+/* heapmgr2.c                                                      */
 /*--------------------------------------------------------------------*/
 
 #include <stdio.h>
@@ -11,12 +11,34 @@
 #define FALSE 0
 #define TRUE  1
 
+/* Segregated bins configuration */
+#define BIN_GRAN        10           /* span units per size class (bucket width) */
+#define BIN_COUNT       101          /* number of bins (indices 0..MAX_BIN_INDEX) */
+#define MAX_BIN_INDEX   (BIN_COUNT-1)
+#define LAST_BIN_LOWER_BOUND  (MAX_BIN_INDEX * BIN_GRAN + 1)  /* lower bound for last bin */
+
 /* Minimum number of *payload* units to request on heap growth.
  * (The actual request adds 2 units on top for header and footer.) */
 enum { SYS_MIN_ALLOC_UNITS = 1024 };
 
-/* Head of the free list (ordered by ascending address). */
-static Chunk_T s_free_head = NULL;
+/*
+ * Segregated free-list bins (by span units):
+ *  - bin 0            : span <= BIN_GRAN
+ *  - bin 1            : BIN_GRAN+1 .. 2*BIN_GRAN
+ *  - ...
+ *  - bin MAX_BIN_INDEX: span >= LAST_BIN_LOWER_BOUND
+ *
+ * Note: static storage guarantees zero-initialization; {NULL} also zeros all.
+ */
+static Chunk_T s_bins[BIN_COUNT] = { NULL };
+
+/* Map a span (in units) to its bin index as described above. */
+static inline int span_to_bin_index(int span_units)
+{
+    if (span_units <= BIN_GRAN) return 0;
+    if (span_units >= LAST_BIN_LOWER_BOUND) return MAX_BIN_INDEX;
+    return (span_units - 1) / BIN_GRAN;
+}
 
 /* Heap bounds: [s_heap_lo, s_heap_hi).
  * s_heap_hi moves forward whenever the heap grows. */
@@ -49,9 +71,13 @@ check_heap_validity(void)
     if (s_heap_hi == NULL) { fprintf(stderr, "Uninitialized heap end\n");   return FALSE; }
 
     if (s_heap_lo == s_heap_hi) {
-        if (s_free_head == NULL) return TRUE;
-        fprintf(stderr, "Inconsistent empty heap\n");
-        return FALSE;
+        for (int i = 0; i < BIN_COUNT; i++) {
+            if (s_bins[i] != NULL) {
+                fprintf(stderr, "Inconsistent empty heap\n");
+                return FALSE;
+            }
+        }
+        return TRUE;
     }
 
     /* Walk all physical blocks in address order. */
@@ -62,19 +88,21 @@ check_heap_validity(void)
     }
 
     /* Walk the free list; ensure nodes are free and not trivially coalescible. */
-    for (w = s_free_head; w; w = chunk_get_next_free(w)) {
-        Chunk_T n;
+    for (int i = 0; i < BIN_COUNT; i++) {
+        for (w = s_bins[i]; w; w = chunk_get_next_free(w)) {
+            Chunk_T n;
 
-        if (chunk_get_status(w) != CHUNK_FREE) {
-            fprintf(stderr, "Non-free chunk in the free list\n");
-            return FALSE;
-        }
-        if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
+            if (chunk_get_status(w) != CHUNK_FREE) {
+                fprintf(stderr, "Non-free chunk in the free list @%p\n", (void *)w);
+                return FALSE;
+            }
+            if (!chunk_is_valid(w, s_heap_lo, s_heap_hi)) return FALSE;
 
-        n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi);
-        if (n != NULL && n == chunk_get_next_free(w)) {
-            fprintf(stderr, "Uncoalesced adjacent free chunks\n");
-            return FALSE;
+            n = chunk_get_adjacent(w, s_heap_lo, s_heap_hi);
+            if (n != NULL && n == chunk_get_next_free(w)) {
+                fprintf(stderr, "Uncoalesced adjacent free chunks\n");
+                return FALSE;
+            }
         }
     }
     return TRUE;
@@ -145,22 +173,44 @@ heap_bootstrap(void)
 static Chunk_T
 split_for_alloc(Chunk_T c, size_t need_units)
 {
-    Chunk_T alloc, prev_f;
-    int old_span    = chunk_get_span_units(c);
-    int alloc_span  = (int)(2 + need_units);
-    int remain_span = old_span - alloc_span;
+    Chunk_T alloc, prev_f, next_f;
+    int old_span     = chunk_get_span_units(c);
+    int alloc_span   = (int)(2 + need_units);
+    int remain_span  = old_span - alloc_span;
+    int old_bin_idx  = span_to_bin_index(old_span);
+    int new_bin_idx  = span_to_bin_index(remain_span);
 
     assert(c >= (Chunk_T)s_heap_lo && c < (Chunk_T)s_heap_hi);
     assert(chunk_get_status(c) == CHUNK_FREE);
     assert(remain_span > 2);
 
     prev_f = chunk_get_prev_free(c);
+    next_f = chunk_get_next_free(c);
 
-    /* Shrink the leading free block. */
+    /* Shrink the leading free block (remaining free portion). */
     chunk_set_span_units(c, remain_span);
     chunk_set_status(c, CHUNK_FREE);
     chunk_set_prev_free(c, prev_f);
     
+    /* If bin changed, move remaining free block to new bin head (O(1)). */
+    if (new_bin_idx != old_bin_idx) {
+        /* Detach from old bin head (c is the head by design of allocator). */
+        if (prev_f == NULL)
+            s_bins[old_bin_idx] = next_f;
+        else
+            chunk_set_next_free(prev_f, next_f);
+
+        if (next_f != NULL)
+            chunk_set_prev_free(next_f, prev_f);
+
+        /* Attach to new bin head. */
+        chunk_set_prev_free(c, NULL);
+        chunk_set_next_free(c, s_bins[new_bin_idx]);
+        if (s_bins[new_bin_idx] != NULL)
+            chunk_set_prev_free(s_bins[new_bin_idx], c);
+        s_bins[new_bin_idx] = c;
+    }
+
     /* The allocated block begins immediately after the smaller free block. */
     alloc = chunk_get_adjacent(c, s_heap_lo, s_heap_hi);
     chunk_set_span_units(alloc, alloc_span);
@@ -185,12 +235,14 @@ freelist_detach(Chunk_T c)
     assert(chunk_get_status(c) == CHUNK_FREE);
 
     Chunk_T prev_f, next_f;
+    int     bin_idx;
     
-    prev_f = chunk_get_prev_free(c);
-    next_f = chunk_get_next_free(c);
+    prev_f   = chunk_get_prev_free(c);
+    next_f   = chunk_get_next_free(c);
+    bin_idx  = span_to_bin_index(chunk_get_span_units(c));
 
     if (prev_f == NULL)
-        s_free_head = next_f;
+        s_bins[bin_idx] = next_f;
     else
         chunk_set_next_free(prev_f, next_f);
 
@@ -243,7 +295,7 @@ sys_grow_and_link(size_t need_units)
     heapmgr_free((void *)((char *)c + CHUNK_UNIT));
 
     assert(check_heap_validity());
-    return s_free_head;
+    return s_bins[MAX_BIN_INDEX];
 }
 
 /*--------------------------------------------------------------------*/
@@ -276,18 +328,23 @@ heapmgr_malloc(size_t size)
 
     need_units = bytes_to_payload_units(size);
 
-    /* First-fit scan: usable payload units = span - 2 (exclude header and footer). */
-    for (cur = s_free_head; cur != NULL; cur = chunk_get_next_free(cur)) {
-        size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2;
+    /* First-fit scan across bins (increasing bin index). Payload = span - 2. */
+    int required_span = (int)(need_units + 2);
+    int start_idx     = span_to_bin_index(required_span);
 
-        if (cur_payload >= need_units) {
-            if (cur_payload > need_units + 2)
-                cur = split_for_alloc(cur, need_units);
-            else
-                freelist_detach(cur);
+    for (int i = start_idx; i < BIN_COUNT; i++) {
+        for (cur = s_bins[i]; cur != NULL; cur = chunk_get_next_free(cur)) {
+            size_t cur_payload = (size_t)chunk_get_span_units(cur) - 2;
 
-            assert(check_heap_validity());
-            return (void *)((char *)cur + CHUNK_UNIT);
+            if (cur_payload >= need_units) {
+                if (cur_payload > need_units + 2)
+                    cur = split_for_alloc(cur, need_units);
+                else
+                    freelist_detach(cur);
+
+                assert(check_heap_validity());
+                return (void *)((char *)cur + CHUNK_UNIT);
+            }
         }
     }
 
@@ -298,7 +355,7 @@ heapmgr_malloc(size_t size)
         return NULL;
     }
 
-    /* Final split/detach on the grown block. */
+    /* Final split/detach on the grown block (head of its bin). */
     if ((size_t)chunk_get_span_units(cur) - 2 > need_units + 2)
         cur = split_for_alloc(cur, need_units);
     else
@@ -352,15 +409,17 @@ heapmgr_free(void *p)
         chunk_set_span_units(c, chunk_get_span_units(c) + chunk_get_span_units(next));
     }
 
-    /* Insert the (possibly coalesced) block at the head of free list. */
-    chunk_set_status(c, CHUNK_FREE);
-    chunk_set_prev_free(c, NULL);
-    chunk_set_next_free(c, s_free_head);
+    /* Insert the (possibly coalesced) block at the head of the appropriate bin. */
+    {
+        int idx = span_to_bin_index(chunk_get_span_units(c));
+        chunk_set_status(c, CHUNK_FREE);
+        chunk_set_prev_free(c, NULL);
+        chunk_set_next_free(c, s_bins[idx]);
 
-    if (s_free_head != NULL)
-        chunk_set_prev_free(s_free_head, c);
-
-    s_free_head = c;
+        if (s_bins[idx] != NULL)
+            chunk_set_prev_free(s_bins[idx], c);
+        s_bins[idx] = c;
+    }
 
     assert(check_heap_validity());
 }
