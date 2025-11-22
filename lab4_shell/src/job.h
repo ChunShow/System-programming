@@ -36,6 +36,9 @@ struct job {
     pid_t pgid;
     int remaining_processes;
     /* TODO: Add any necessary fields to the job */
+    pid_t *pids;           /* Array of process IDs in this job */
+    int total_processes;   /* Total number of processes in this job */
+    job_state state;       /* Job state: FOREGROUND, BACKGROUND, etc. */
 };
 
 /* 
@@ -47,6 +50,7 @@ struct job_manager {
     int n_jobs;
     struct job *jobs;
     /* TODO: Add any necessary fields to the job manager */
+    int next_job_id;       /* Next available job ID */
 };
 
 void init_job_manager();
@@ -57,5 +61,9 @@ int delete_job(int job_id);
 /*
  * TODO: Implement any necessary job-control code in job.h 
  */
+struct job *allocate_job(pid_t pgid, int n_processes, job_state state);
+int add_pid_to_job(struct job *job, pid_t pid);
+struct job *find_job_by_pid(pid_t pid);
+struct job *find_foreground_job(void);
 
 #endif /* _JOB_H_ */

@@ -15,11 +15,29 @@ struct job_manager *manager;
 volatile sig_atomic_t sigchld_flag = 0;
 volatile sig_atomic_t sigint_flag = 0;
 
+/* Structure to store completed background job information */
+struct completed_bg_job {
+    int job_id;
+    pid_t pgid;
+};
+
+/* Queue for completed background jobs (simple array) */
+struct completed_bg_job completed_bg_jobs[MAX_JOBS];
+int n_completed_bg_jobs = 0;
+
 /*--------------------------------------------------------------------*/
 void check_bg_status() {
     /*
      * TODO: Implement check_bg_status()
      */
+    int i;
+    
+    for (i = 0; i < n_completed_bg_jobs; i++) {
+        fprintf(stdout, "[%d] Process group: %d done\n",
+                completed_bg_jobs[i].job_id, completed_bg_jobs[i].pgid);
+    }
+    fflush(stdout);
+    n_completed_bg_jobs = 0;
 }
 /*--------------------------------------------------------------------*/
 void terminate_jobs() {
@@ -27,6 +45,21 @@ void terminate_jobs() {
     /*
      * TODO: Implement terminate_jobs()
     */
+    if (manager != NULL) {
+        /* Free all pids arrays for each job */
+        if (manager->jobs != NULL) {
+            int i;
+            for (i = 0; i < manager->n_jobs; i++) {
+                if (manager->jobs[i].pids != NULL) {
+                    free(manager->jobs[i].pids);
+                    manager->jobs[i].pids = NULL;
+                }
+            }
+            /* Free the jobs array */
+            free(manager->jobs);
+            manager->jobs = NULL;
+        }
+    }
 }
 /*--------------------------------------------------------------------*/
 void cleanup() {
